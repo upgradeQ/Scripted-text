@@ -9,13 +9,13 @@ Open `Tools>Scripts` ,select this script , set settings for it, preview it if ne
 - static 
 > just show text
 - rainbow
-> cycle threw colors 
 ![rainbow](https://i.imgur.com/GmhEDv4.gifv)
+> cycle threw colors 
 - blinking
-> blinking text 
 ![blink](https://i.imgur.com/2M2wDUD.gifv)
+> blinking text 
 - random characters 
-> spy movies like text reveal
 ![random](https://i.imgur.com/RYxSTDk.gifv)
+> spy movies like text reveal
 # Contribute 
 Report bugs or suggestions  in issues.
