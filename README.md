@@ -12,10 +12,12 @@ _Optionally create media source_
 # Current implemented text effects
 - static 
 > just show text
-> cycle threw colors  
-![preview](https://i.imgur.com/GmhEDv4.gif)  
-
-> blinking text  
-![preview](https://i.imgur.com/2M2wDUD.gif)   
+> cycle threw colors   
+- ![preview](https://i.imgur.com/GmhEDv4.gif)   
+> blinking text   
+- ![preview](https://i.imgur.com/2M2wDUD.gif)   
+> loading text NEW   
+- ![preview](https://i.imgur.com/H0pgtHf.gif)   
 # Contribute 
-Report bugs or suggestions  in issues.
+[Forks](https://help.github.com/articles/fork-a-repo) are a great way to contribute to a repository.
+After forking a repository, you can send the original author a [pull request](https://help.github.com/articles/using-pull-requests)

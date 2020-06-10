@@ -5,8 +5,8 @@ from time import sleep
 import string
 
 __author__ = "upgradeQ"
-__version__ = "0.1.1"
-
+__version__ = "0.2.0"
+HOTKEY_ID = obs.OBS_INVALID_HOTKEY_ID 
 
 class TextContent:
     def __init__(self, text_string="This is default text", source_name=None):
@@ -31,18 +31,16 @@ class Driver(TextContent):
         super().__init__(text_string, source_name)
         self.scripted_text = "default value"
         self.sound_source_name = None
-        self.hotkey_id_scripted_text = obs.OBS_INVALID_HOTKEY_ID
         self.effect = "static"  # take value from property
 
-        self.preview = True
-        self.hide = False
-
+        self.lock = True
         self.refresh_rate = 250
         self.duration = 5 * 1000
         self.effect_duration = 3 * 1000
 
         self.blinking = cycle([True, False])
-        self.palette = cycle([0xFFBE0B, 0xFB5607, 0xFF006E, 0x8338EC, 0x3A86FF]) 
+        self.palette = cycle([0xFFBE0B, 0xFB5607, 0xFF006E, 0x8338EC, 0x3A86FF])
+        self.dots = cycle([" ", ".", "..", "..."])
 
     def play_sound(self):
         source = obs.obs_get_source_by_name(self.sound_source_name)
@@ -64,6 +62,8 @@ class Driver(TextContent):
             self.blink_effect()
         if text_effect == "rainbow":
             self.rainbow_effect()
+        if text_effect == "loading":
+            self.loading_effect()
 
         self.duration -= self.refresh_rate
         print(self.duration)
@@ -71,8 +71,7 @@ class Driver(TextContent):
             self.update_text("")
             obs.remove_current_callback()
             self.duration = 5 * 1000
-            self.preview = True
-            self.hide = True
+            self.lock = True
 
     def static_effect(self):
         self.update_text(self.scripted_text)
@@ -87,6 +86,9 @@ class Driver(TextContent):
         else:
             self.update_text("")
 
+    def loading_effect(self):
+        self.update_text(self.scripted_text + next(self.dots))
+
     def hotkey_hook(self):
         """ trigger hotkey event"""
         self.play_sound()
@@ -94,20 +96,25 @@ class Driver(TextContent):
         self.duration = self.effect_duration
         print("effect duration ", self.duration)
         interval = self.refresh_rate
-        if self.preview:
+        if self.lock:
             self.ticker = partial(self.ticker, text_effect=self.effect)
             obs.timer_add(self.ticker, interval)
-        self.preview = False
+        self.lock = False
 
 
 scripted_text_driver = Driver(
     text_string="default string", source_name="default source name"
 )
 
-
-
 def script_description():
     return " Scripted text \n with effects and media "
+
+
+def script_defaults(settings):
+    obs.obs_data_set_default_int(
+        settings, "refresh_rate", scripted_text_driver.refresh_rate
+    )
+    obs.obs_data_set_default_int(settings, "duration", scripted_text_driver.duration)
 
 
 def script_update(settings):
@@ -119,25 +126,13 @@ def script_update(settings):
     scripted_text_driver.refresh_rate = obs.obs_data_get_int(settings, "refresh_rate")
 
     print("setting duration")
-    scripted_text_driver.effect_duration = obs.obs_data_get_int(
-        settings, "duration"
-    )
+    scripted_text_driver.effect_duration = obs.obs_data_get_int(settings, "duration")
     scripted_text_driver.sound_source_name = obs.obs_data_get_string(
         settings, "playsound"
     )
     scripted_text_driver.effect = obs.obs_data_get_string(settings, "text_effect")
     print("stopping sound")
     scripted_text_driver.stop_sound()
-
-
-def script_save(settings):
-    hotkey_save_array_scripted_text = obs.obs_hotkey_save(
-        scripted_text_driver.hotkey_id_scripted_text
-    )
-    obs.obs_data_set_array(
-        settings, "scripted_text_hotkey", hotkey_save_array_scripted_text
-    )
-    obs.obs_data_array_release(hotkey_save_array_scripted_text)
 
 
 def script_properties():
@@ -147,8 +142,12 @@ def script_properties():
     obs.obs_properties_add_text(
         props, "scripted_text", "Scripted text", obs.OBS_TEXT_DEFAULT
     )
-    obs.obs_properties_add_int(props, "refresh_rate", "Refresh rate(ms)", 50, 5*1000, 1)
-    obs.obs_properties_add_int(props, "duration", "Duration shown(ms)", 1*1000, 3600*1000, 1)
+    obs.obs_properties_add_int(
+        props, "refresh_rate", "Refresh rate(ms)", 50, 5 * 1000, 1
+    )
+    obs.obs_properties_add_int(
+        props, "duration", "Duration shown(ms)", 1 * 1000, 3600 * 1000, 1
+    )
 
     p = obs.obs_properties_add_list(
         props,
@@ -172,7 +171,7 @@ def script_properties():
         obs.OBS_COMBO_FORMAT_STRING,
     )
 
-    for i in ["rainbow", "static", "blink"]:
+    for i in ["rainbow", "static", "blink", "loading"]:
         obs.obs_property_list_add_string(tp, i, i)
 
     sources = obs.obs_enum_sources()
@@ -189,21 +188,32 @@ def script_properties():
 
         obs.source_list_release(sources)
 
-    obs.obs_properties_add_button(props, "button1", "preview",lambda *props:scripted_text_driver.hotkey_hook())
+    obs.obs_properties_add_button(
+        props, "button1", "preview", lambda *props: scripted_text_driver.hotkey_hook()
+    )
 
     return props
 
 
+def script_save(settings):
+    global HOTKEY_ID
+    hotkey_save_array = obs.obs_hotkey_save(HOTKEY_ID)
+    print('htksave',hotkey_save_array)
+    obs.obs_data_set_array(settings, "scripted_text_hotkey", hotkey_save_array)
+    obs.obs_data_array_release(hotkey_save_array)
+
+
 def script_load(settings):
+    global HOTKEY_ID
+
     def callback_up(pressed):
         if pressed:
             return scripted_text_driver.hotkey_hook()
 
-    hotkey_id_scripted_text = obs.obs_hotkey_register_frontend(
-        "Trigger sripted text", "Trigger sripted text", callback_up
+    HOTKEY_ID = obs.obs_hotkey_register_frontend(
+        "scripted_text_hotkey", "Trigger sripted text", callback_up
     )
-    hotkey_save_array_scripted_text = obs.obs_data_get_array(
-        settings, "scripted_text_hotkey"
-    )
-    obs.obs_hotkey_load(hotkey_id_scripted_text, hotkey_save_array_scripted_text)
-    obs.obs_data_array_release(hotkey_save_array_scripted_text)
+    obs.obs_data_get_array(settings, "scripted_text_hotkey")
+    hotkey_save_array = obs.obs_data_get_array(settings, "scripted_text_hotkey")
+    obs.obs_hotkey_load(HOTKEY_ID, hotkey_save_array)
+    obs.obs_data_array_release(hotkey_save_array)
