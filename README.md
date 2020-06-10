@@ -12,9 +12,10 @@ _Optionally create media source_
 # Current implemented text effects
 - static 
 > just show text
-> cycle threw colors 
-![preview](https://i.imgur.com/GmhEDv4.gif)
-> blinking text 
-![preview](https://i.imgur.com/2M2wDUD.gif) 
+> cycle threw colors  
+![preview](https://i.imgur.com/GmhEDv4.gif)  
+
+> blinking text  
+![preview](https://i.imgur.com/2M2wDUD.gif)   
 # Contribute 
 Report bugs or suggestions  in issues.
