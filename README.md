@@ -11,13 +11,17 @@ _Optionally create media source_
 - set hotkey in `File>Settings`
 # Current implemented text effects
 - static 
-> just show text
+> just show text  
 > cycle threw colors   
 - ![preview](https://i.imgur.com/GmhEDv4.gif)   
 > blinking text   
 - ![preview](https://i.imgur.com/2M2wDUD.gif)   
-> loading text NEW   
+> loading text  
 - ![preview](https://i.imgur.com/H0pgtHf.gif)   
+> tremor effect NEW    
+- ![preview](https://i.imgur.com/8G3TVGp.gif)   
+> sanic effect NEW   
+- ![preview](https://i.imgur.com/pvaEWlE.gif)   
 # Contribute 
 [Forks](https://help.github.com/articles/fork-a-repo) are a great way to contribute to a repository.
 After forking a repository, you can send the original author a [pull request](https://help.github.com/articles/using-pull-requests)
