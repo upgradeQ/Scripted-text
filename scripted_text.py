@@ -2,12 +2,51 @@ import obspython as obs
 from itertools import cycle
 from functools import partial
 from random import randint, sample, choice
-from time import sleep
+from contextlib import contextmanager
 import string
 
 __author__ = "upgradeQ"
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 HOTKEY_ID = obs.OBS_INVALID_HOTKEY_ID
+
+# auto release context managers
+@contextmanager
+def source_ar(source_name):
+    source = obs.obs_get_source_by_name(source_name)
+    try:
+        yield source
+    finally:
+        obs.obs_source_release(source)
+
+
+@contextmanager
+def data_ar(source_settings=None):
+    if not source_settings:
+        settings = obs.obs_data_create()
+    if source_settings:
+        settings = obs.obs_source_get_settings(source_settings)
+    try:
+        yield settings
+    finally:
+        obs.obs_data_release(settings)
+
+
+@contextmanager
+def scene_ar(scene):
+    scene = obs.obs_scene_from_source(scene)
+    try:
+        yield scene
+    finally:
+        obs.obs_scene_release(scene)
+
+
+@contextmanager
+def filter_ar(source, name):
+    source = obs.obs_source_get_filter_by_name(source, name)
+    try:
+        yield source
+    finally:
+        obs.obs_source_release(source)
 
 
 class TextContent:
@@ -18,15 +57,12 @@ class TextContent:
 
     def update_text(self, scripted_text, color=None):
         """takes scripted_text , sets its value in obs  """
-        source = obs.obs_get_source_by_name(self.source_name)
-        settings = obs.obs_data_create()
-        self.text_string = scripted_text
-        if color:
-            obs.obs_data_set_int(settings, "color", color)  # colored text
-        obs.obs_data_set_string(settings, "text", self.text_string)
-        obs.obs_source_update(source, settings)
-        obs.obs_data_release(settings)
-        obs.obs_source_release(source)
+        with source_ar(self.source_name) as source, data_ar() as settings:
+            self.text_string = scripted_text
+            if color:
+                obs.obs_data_set_int(settings, "color", color)  # colored text
+            obs.obs_data_set_string(settings, "text", self.text_string)
+            obs.obs_source_update(source, settings)
 
 
 class Driver(TextContent):
@@ -35,6 +71,7 @@ class Driver(TextContent):
         self.scripted_text = "default value"
         self.sound_source_name = None
         self.effect = "static"  # take value from property
+        self.txt_efcts = self.load()
 
         self.lock = True
         self.refresh_rate = 250
@@ -47,41 +84,40 @@ class Driver(TextContent):
         self.palette = cycle([0xFFBE0B, 0xFB5607, 0xFF006E, 0x8338EC, 0x3A86FF])
         self.dots = cycle([" ", ".", "..", "..."])
 
+    def load(self):
+        mapping = dict()
+        for i in ["rainbow", "static", "blink", "loading", "tremor", "sanic"]:
+            mapping[i] = getattr(self, i + "_" + "effect")
+        return mapping
+
     def play_sound(self):
-        source = obs.obs_get_source_by_name(self.sound_source_name)
-        obs.obs_source_media_restart(source)
-        obs.obs_source_release(source)
+        with source_ar(self.sound_source_name) as source:
+            obs.obs_source_media_restart(source)
 
     def stop_sound(self):
-        source = obs.obs_get_source_by_name(self.sound_source_name)
-        obs.obs_source_media_stop(source)
-        obs.obs_source_release(source)
+        with source_ar(self.sound_source_name) as source:
+            obs.obs_source_media_stop(source)
 
     def ticker(self, text_effect):
         """ main time primitive """
-        # those effects updated every self.refresh_rate ms
+        # effects updated every self.refresh_rate ms
+        def check_duration():
+            if self.duration <= 0:
+                self.update_text("")
+                obs.remove_current_callback()
+                self.duration = 5 * 1000
+                self.lock = True
+                self.last_jump_y, self.last_jump_x = 0, 0
 
-        if text_effect == "static":
-            self.static_effect()
-        if text_effect == "blink":
-            self.blink_effect()
-        if text_effect == "rainbow":
-            self.rainbow_effect()
-        if text_effect == "loading":
-            self.loading_effect()
-        if text_effect == "tremor":
-            self.tremor_effect()
-        if text_effect == "sanic":
-            self.sanic_effect()
+        try:
+            self.txt_efcts[text_effect]()
+            self.duration -= self.refresh_rate
+            check_duration()
 
-        self.duration -= self.refresh_rate
-        # print(self.duration)
-        if self.duration <= 0:
-            self.update_text("")
-            obs.remove_current_callback()
-            self.duration = 5 * 1000
-            self.lock = True
-            self.last_jump_y, self.last_jump_x = 0, 0
+        except KeyError:
+            self.duration = 0
+            check_duration()
+            raise Exception(f"No such effect: {text_effect}")
 
     def static_effect(self):
         self.update_text(self.scripted_text)
@@ -105,98 +141,91 @@ class Driver(TextContent):
         if flag:
             self.update_text(self.scripted_text)
             current_scene = obs.obs_frontend_get_current_scene()
-            source = obs.obs_get_source_by_name(self.source_name)
-            scene = obs.obs_scene_from_source(current_scene)
-            scene_item = obs.obs_scene_find_source(scene, self.source_name)
-            pos = obs.vec2()
-            self.location = pos
-            obs.obs_sceneitem_get_pos(
-                scene_item, self.location
-            )  # update to last position if its changed from OBS
+            with source_ar(self.source_name) as source, scene_ar(
+                current_scene
+            ) as scene:
+                scene_item = obs.obs_scene_find_source(scene, self.source_name)
+                pos = obs.vec2()
+                self.location = pos
+                obs.obs_sceneitem_get_pos(
+                    scene_item, self.location
+                )  # update to last position if its changed from OBS
 
-            if not self.last_jump_x == 0:
-                if self.last_jump_x < 0:
-                    # minus minus
-                    self.location.x -= self.last_jump_x
-                if self.last_jump_x > 0:
-                    self.location.x -= self.last_jump_x
-            if not self.last_jump_y == 0:
-                if self.last_jump_y < 0:
-                    self.location.y -= self.last_jump_y
-                if self.last_jump_y > 0:
-                    self.location.y -= self.last_jump_y
+                if not self.last_jump_x == 0:
+                    if self.last_jump_x < 0:
+                        # minus minus
+                        self.location.x -= self.last_jump_x
+                    if self.last_jump_x > 0:
+                        self.location.x -= self.last_jump_x
 
-            if scene_item:
-                obs.obs_sceneitem_set_pos(scene_item, self.location)
+                if not self.last_jump_y == 0:
+                    if self.last_jump_y < 0:
+                        self.location.y -= self.last_jump_y
+                    if self.last_jump_y > 0:
+                        self.location.y -= self.last_jump_y
 
-            obs.obs_scene_release(scene)
-            obs.obs_source_release(source)
+                if scene_item:
+                    obs.obs_sceneitem_set_pos(scene_item, self.location)
 
         else:
             self.update_text(self.scripted_text)
             current_scene = obs.obs_frontend_get_current_scene()
-            source = obs.obs_get_source_by_name(self.source_name)
-            scene = obs.obs_scene_from_source(current_scene)
-            scene_item = obs.obs_scene_find_source(scene, self.source_name)
-            pos = obs.vec2()
-            self.location = pos
-            obs.obs_sceneitem_get_pos(
-                scene_item, self.location
-            )  # update to last position if its changed from OBS
+            with source_ar(self.source_name) as source, scene_ar(
+                current_scene
+            ) as scene:
+                scene_item = obs.obs_scene_find_source(scene, self.source_name)
+                pos = obs.vec2()
+                self.location = pos
+                obs.obs_sceneitem_get_pos(
+                    scene_item, self.location
+                )  # update to last position if its changed from OBS
 
-            if scene_item:
-                # finish early , and set to default
-                if self.duration // self.refresh_rate <= 3:
-                    self.duration = 0
-                    obs.obs_sceneitem_set_pos(scene_item, self.location)
+                if scene_item:
+                    # finish early , and set to default
+                    if self.duration // self.refresh_rate <= 3:
+                        self.duration = 0
+                        obs.obs_sceneitem_set_pos(scene_item, self.location)
 
-                else:
-                    next_pos = obs.vec2()
-                    withoutzero = list(range(-101, 0)) + list(range(1, 101))
-                    self.last_jump_x = choice(withoutzero)
-                    self.last_jump_y = choice(withoutzero)
-                    dx, dy = self.last_jump_x, self.last_jump_y
-                    next_pos.x, next_pos.y = self.location.x + dx, self.location.y + dy
-                    obs.obs_sceneitem_set_pos(scene_item, next_pos)
+                    else:
+                        next_pos = obs.vec2()
+                        withoutzero = list(range(-101, 0)) + list(range(1, 101))
+                        self.last_jump_x = choice(withoutzero)
+                        self.last_jump_y = choice(withoutzero)
+                        dx, dy = self.last_jump_x, self.last_jump_y
+                        next_pos.x, next_pos.y = (
+                            self.location.x + dx,
+                            self.location.y + dy,
+                        )
+                        obs.obs_sceneitem_set_pos(scene_item, next_pos)
 
-            obs.obs_scene_release(scene)
-            obs.obs_source_release(source)
-
-    def sanic_effect(self,):
+    def sanic_effect(self):
         # add filter scroll to source if not present,
         self.update_text(self.scripted_text)
-        source = obs.obs_get_source_by_name(self.source_name)
-        scroll = obs.obs_source_get_filter_by_name(source, "py_scroll")
-        if scroll is None:
+        with source_ar(self.source_name) as source, filter_ar(
+            source, "py_scroll"
+        ) as scroll:
+            if scroll is None:
+                with data_ar() as settings:
+                    obs.obs_data_set_int(settings, "speed_x", 5000)
 
-            settings = obs.obs_data_create()
+                    source_scroll = obs.obs_source_create_private(
+                        "scroll_filter", "py_scroll", settings
+                    )
+                    obs.obs_source_filter_add(source, source_scroll)
+                    obs.obs_source_release(source_scroll)
 
-            obs.obs_data_set_int(settings, "speed_x", 5000)
-            source_scroll = obs.obs_source_create_private(
-                "scroll_filter", "py_scroll", settings
-            )
-            obs.obs_source_filter_add(source, source_scroll)
-
-            obs.obs_data_release(settings)
-            obs.obs_source_release(source_scroll)
-
-        filter_settings = obs.obs_source_get_settings(scroll)
-        obs.obs_data_set_int(filter_settings, "speed_x", 5000)
-        obs.obs_source_update(scroll, filter_settings)
-        # set to zero scrolling speed and it will not interfere with others effects
-        if self.duration // self.refresh_rate <= 3:
-            self.duration = 0
-            obs.obs_data_set_int(filter_settings, "speed_x", 0)
-            obs.obs_source_update(scroll, filter_settings)
-
-        obs.obs_data_release(filter_settings)
-        obs.obs_source_release(source)
-        obs.obs_source_release(scroll)
+            with data_ar(scroll) as filter_settings:
+                obs.obs_data_set_int(filter_settings, "speed_x", 5000)
+                obs.obs_source_update(scroll, filter_settings)
+                # set to zero scrolling speed and it will not interfere with others effects
+                if self.duration // self.refresh_rate <= 3:
+                    self.duration = 0
+                    obs.obs_data_set_int(filter_settings, "speed_x", 0)
+                    obs.obs_source_update(scroll, filter_settings)
 
     def hotkey_hook(self):
         """ trigger hotkey event"""
         self.play_sound()
-        print("effect duration ", self.effect_duration)
         self.duration = self.effect_duration
         print("effect duration ", self.duration)
         interval = self.refresh_rate
@@ -276,7 +305,7 @@ def script_properties():
         obs.OBS_COMBO_FORMAT_STRING,
     )
 
-    for i in ["rainbow", "static", "blink", "loading", "tremor", "sanic"]:
+    for i in scripted_text_driver.txt_efcts.keys():
         obs.obs_property_list_add_string(tp, i, i)
 
     sources = obs.obs_enum_sources()
@@ -309,6 +338,7 @@ def script_save(settings):
 
 
 def script_load(settings):
+    # BUG, something here causing single memory leak
     global HOTKEY_ID
 
     def callback_up(pressed):
