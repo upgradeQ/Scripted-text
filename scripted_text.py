@@ -1,12 +1,13 @@
+import string
 import obspython as obs
 from itertools import cycle
 from functools import partial
-from random import randint, sample, choice
+from random import choice
 from contextlib import contextmanager
-import string
+from random import seed
 
 __author__ = "upgradeQ"
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 HOTKEY_ID = obs.OBS_INVALID_HOTKEY_ID
 
 # auto release context managers
@@ -78,6 +79,10 @@ class Driver(TextContent):
         self.duration = 5 * 1000
         self.effect_duration = 3 * 1000
 
+        self._text_chars = []
+        self.rand_index = 0
+        self.lst_index = 0
+        self.blinking_bar = cycle([True, False])
         self.position_swap = cycle([True, False])
         self.last_jump_x = self.last_jump_y = 0
         self.blinking = cycle([True, False])
@@ -86,7 +91,16 @@ class Driver(TextContent):
 
     def load(self):
         mapping = dict()
-        for i in ["rainbow", "static", "blink", "loading", "tremor", "sanic"]:
+        for i in [
+            "rainbow",
+            "static",
+            "blink",
+            "loading",
+            "tremor",
+            "sanic",
+            "typewriter",
+            "scrmbl",
+        ]:
             mapping[i] = getattr(self, i + "_" + "effect")
         return mapping
 
@@ -108,6 +122,8 @@ class Driver(TextContent):
                 self.duration = 5 * 1000
                 self.lock = True
                 self.last_jump_y, self.last_jump_x = 0, 0
+                self.lst_index = 0
+                self.rand_index = 0
 
         try:
             self.txt_efcts[text_effect]()
@@ -219,9 +235,50 @@ class Driver(TextContent):
                 obs.obs_source_update(scroll, filter_settings)
                 # set to zero scrolling speed and it will not interfere with others effects
                 if self.duration // self.refresh_rate <= 3:
+                    obs.obs_source_filter_remove(source, scroll)
                     self.duration = 0
-                    obs.obs_data_set_int(filter_settings, "speed_x", 0)
-                    obs.obs_source_update(scroll, filter_settings)
+
+    def typewriter_effect(self):
+        """adjust refresh rate in settings"""
+        l = len(self.scripted_text)
+        result = self.scripted_text[: self.lst_index]
+        space_count = l - len(result)
+        bar = "_" if next(self.blinking_bar) else ""
+        result += bar
+        result += space_count * " "
+        self.lst_index += 1
+        self.update_text(result)
+
+    def scrmbl_effect(self):
+        """tweak refresh rate & duration """
+        try:
+            self.update_text(self._text_chars[self.rand_index])
+            self.rand_index += 1
+        except IndexError:
+            self.update_text(self.scripted_text)
+            # self.rand_index = 0
+
+    def text_chars(self, scripted_str):
+        """inspired by https://github.com/etienne-napoleone/scrmbl """
+
+        ALL_CHARS = string.digits + string.ascii_letters + string.punctuation
+
+        def gen(scripted_str, iterations):
+            seed()  # set new seed
+            echoed = ""
+            fill = len(scripted_str)
+            for char in scripted_str:
+                for _ in range(iterations):
+                    if char != " ":
+                        ran_char = choice(ALL_CHARS)
+                        yield f"{echoed}{ran_char}{' '*fill}"
+                    else:
+                        yield f"{echoed}{' '*fill}"
+                echoed += char
+            if echoed:  # last char
+                yield f"{echoed}"
+
+        return gen(scripted_str, 3)
 
     def hotkey_hook(self):
         """ trigger hotkey event"""
@@ -259,13 +316,14 @@ def script_update(settings):
     )
     scripted_text_driver.refresh_rate = obs.obs_data_get_int(settings, "refresh_rate")
 
-    print("setting duration")
     scripted_text_driver.effect_duration = obs.obs_data_get_int(settings, "duration")
     scripted_text_driver.sound_source_name = obs.obs_data_get_string(
         settings, "playsound"
     )
     scripted_text_driver.effect = obs.obs_data_get_string(settings, "text_effect")
-    print("stopping sound")
+    scripted_text_driver._text_chars = list(
+        scripted_text_driver.text_chars(scripted_text_driver.scripted_text)
+    )
     scripted_text_driver.stop_sound()
 
 
@@ -318,7 +376,6 @@ def script_properties():
             if source_id == "ffmpeg_source":
                 name = obs.obs_source_get_name(source)
                 obs.obs_property_list_add_string(sp, name, name)
-                print(name)
 
         obs.source_list_release(sources)
 
@@ -332,13 +389,11 @@ def script_properties():
 def script_save(settings):
     global HOTKEY_ID
     hotkey_save_array = obs.obs_hotkey_save(HOTKEY_ID)
-    print("htksave", hotkey_save_array)
     obs.obs_data_set_array(settings, "scripted_text_hotkey", hotkey_save_array)
     obs.obs_data_array_release(hotkey_save_array)
 
 
 def script_load(settings):
-    # BUG, something here causing single memory leak
     global HOTKEY_ID
 
     def callback_up(pressed):
@@ -348,7 +403,6 @@ def script_load(settings):
     HOTKEY_ID = obs.obs_hotkey_register_frontend(
         "scripted_text_hotkey", "Trigger sripted text", callback_up
     )
-    obs.obs_data_get_array(settings, "scripted_text_hotkey")
     hotkey_save_array = obs.obs_data_get_array(settings, "scripted_text_hotkey")
     obs.obs_hotkey_load(HOTKEY_ID, hotkey_save_array)
     obs.obs_data_array_release(hotkey_save_array)
