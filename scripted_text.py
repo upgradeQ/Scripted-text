@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from random import seed
 
 __author__ = "upgradeQ"
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 HOTKEY_ID = obs.OBS_INVALID_HOTKEY_ID
 
 # auto release context managers
@@ -55,6 +55,13 @@ class TextContent:
         self.source_name = source_name
         self.text_string = text_string
         self.location = (0, 0)
+        self._text_chars = self._wpm_chars = []
+        self.rand_index = self.lst_index = self.wpm_index = 0
+        self.position_swap = cycle([True, False])
+        self.last_jump_x = self.last_jump_y = 0
+        self.blinking = cycle([True, False])
+        self.palette = cycle([0xFFBE0B, 0xFB5607, 0xFF006E, 0x8338EC, 0x3A86FF])
+        self.dots = cycle([" ", ".", "..", "..."])
 
     def update_text(self, scripted_text, color=None):
         """takes scripted_text , sets its value in obs  """
@@ -79,19 +86,9 @@ class Driver(TextContent):
         self.duration = 5 * 1000
         self.effect_duration = 3 * 1000
 
-        self._text_chars = []
-        self.rand_index = 0
-        self.lst_index = 0
-        self.blinking_bar = cycle([True, False])
-        self.position_swap = cycle([True, False])
-        self.last_jump_x = self.last_jump_y = 0
-        self.blinking = cycle([True, False])
-        self.palette = cycle([0xFFBE0B, 0xFB5607, 0xFF006E, 0x8338EC, 0x3A86FF])
-        self.dots = cycle([" ", ".", "..", "..."])
-
     def load(self):
         mapping = dict()
-        for i in [
+        effects_list = [
             "rainbow",
             "static",
             "blink",
@@ -100,7 +97,9 @@ class Driver(TextContent):
             "sanic",
             "typewriter",
             "scrmbl",
-        ]:
+            "fastread",
+        ]
+        for i in effects_list:
             mapping[i] = getattr(self, i + "_" + "effect")
         return mapping
 
@@ -122,8 +121,7 @@ class Driver(TextContent):
                 self.duration = 5 * 1000
                 self.lock = True
                 self.last_jump_y, self.last_jump_x = 0, 0
-                self.lst_index = 0
-                self.rand_index = 0
+                self.lst_index = self.rand_index = self.wpm_index = 0
 
         try:
             self.txt_efcts[text_effect]()
@@ -233,7 +231,6 @@ class Driver(TextContent):
             with data_ar(scroll) as filter_settings:
                 obs.obs_data_set_int(filter_settings, "speed_x", 5000)
                 obs.obs_source_update(scroll, filter_settings)
-                # set to zero scrolling speed and it will not interfere with others effects
                 if self.duration // self.refresh_rate <= 3:
                     obs.obs_source_filter_remove(source, scroll)
                     self.duration = 0
@@ -243,20 +240,18 @@ class Driver(TextContent):
         l = len(self.scripted_text)
         result = self.scripted_text[: self.lst_index]
         space_count = l - len(result)
-        bar = "_" if next(self.blinking_bar) else ""
-        result += bar
         result += space_count * " "
         self.lst_index += 1
         self.update_text(result)
 
     def scrmbl_effect(self):
-        """tweak refresh rate & duration """
+        """adjust refresh rate in settings"""
         try:
+            self._text_chars = list(self.text_chars(self.scripted_text))
             self.update_text(self._text_chars[self.rand_index])
             self.rand_index += 1
         except IndexError:
             self.update_text(self.scripted_text)
-            # self.rand_index = 0
 
     def text_chars(self, scripted_str):
         """inspired by https://github.com/etienne-napoleone/scrmbl """
@@ -280,6 +275,20 @@ class Driver(TextContent):
 
         return gen(scripted_str, 3)
 
+    def fastread_effect(self):
+        """show one word at time centered with spaces"""
+        try:
+            self._wpm_chars = self.wpm_chars()
+            self.update_text(self._wpm_chars[self.wpm_index])
+            self.wpm_index += 1
+        except IndexError:
+            self.update_text("")
+
+    def wpm_chars(self):
+        s = self.scripted_text.split(" ")
+        m = len(max(s, key=len))
+        return [i.center(m, " ") for i in s]
+
     def hotkey_hook(self):
         """ trigger hotkey event"""
         self.play_sound()
@@ -291,6 +300,9 @@ class Driver(TextContent):
             obs.timer_add(self.ticker, interval)
         self.lock = False
 
+    def reset_duration(self):
+        self.duration = 0
+
 
 scripted_text_driver = Driver(
     text_string="default string", source_name="default source name"
@@ -298,7 +310,7 @@ scripted_text_driver = Driver(
 
 
 def script_description():
-    return " Scripted text \n with effects and media "
+    return " Scripted text \n with effects and media ".upper()
 
 
 def script_defaults(settings):
@@ -321,14 +333,10 @@ def script_update(settings):
         settings, "playsound"
     )
     scripted_text_driver.effect = obs.obs_data_get_string(settings, "text_effect")
-    scripted_text_driver._text_chars = list(
-        scripted_text_driver.text_chars(scripted_text_driver.scripted_text)
-    )
     scripted_text_driver.stop_sound()
 
 
 def script_properties():
-    "https://obsproject.com/docs/reference-properties.html"
     props = obs.obs_properties_create()
 
     obs.obs_properties_add_text(
@@ -380,7 +388,11 @@ def script_properties():
         obs.source_list_release(sources)
 
     obs.obs_properties_add_button(
-        props, "button1", "preview", lambda *props: scripted_text_driver.hotkey_hook()
+        props, "button1", "PREVIEW", lambda *props: scripted_text_driver.hotkey_hook()
+    )
+
+    obs.obs_properties_add_button(
+        props, "button2", "RESET", lambda *props: scripted_text_driver.reset_duration()
     )
 
     return props
