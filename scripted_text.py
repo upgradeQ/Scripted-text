@@ -5,9 +5,11 @@ from functools import partial
 from random import choice
 from contextlib import contextmanager
 from random import seed
+from datetime import timedelta
+from string import Template
 
 __author__ = "upgradeQ"
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 HOTKEY_ID = obs.OBS_INVALID_HOTKEY_ID
 
 # auto release context managers
@@ -98,6 +100,7 @@ class Driver(TextContent):
             "typewriter",
             "scrmbl",
             "fastread",
+            "timer",
         ]
         for i in effects_list:
             mapping[i] = getattr(self, i + "_" + "effect")
@@ -288,6 +291,21 @@ class Driver(TextContent):
         s = self.scripted_text.split(" ")
         m = len(max(s, key=len))
         return [i.center(m, " ") for i in s]
+
+    def timer_effect(self):
+        """ timer syntax "seconds = $s , centisecond = $cs"
+        """
+        m_s = self.duration
+        d = timedelta(milliseconds=m_s)
+        s = d.seconds
+        cs = str(d.microseconds)[:2]
+        n = self.scripted_text
+        ts = Template(n)
+        try:
+            time_data = ts.substitute(s=s, cs=cs)
+            self.update_text(time_data)
+        except:# skip errors when  incorrect substitition happens
+            self.update_text(self.scripted_text)
 
     def hotkey_hook(self):
         """ trigger hotkey event"""
