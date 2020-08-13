@@ -1,6 +1,6 @@
 # Scripted text
-Create one hotkey with scripted text + sound  
-Tested in python3.6 OBS Studio version > 25.0.0 
+Trigger hotkey get scripted text effect + sound  
+For windows install [python3.6](https://www.python.org/downloads/release/python-368/) 64 or 32 bit depending on your OBS 
 # Usage
 Create text source.
 _Optionally create media source_  
@@ -10,6 +10,8 @@ _Optionally create media source_
 - preview it if needed,
 - reset if needed,
 - set hotkey in `File>Settings`
+
+If you need additional effects , copy paste `scripted_text.py` , and add it again.
 # Example text effects
 - static 
 > just show text  
